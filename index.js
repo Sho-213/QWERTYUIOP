@@ -1,221 +1,145 @@
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
-const fs = require("fs");
+const fs = require('fs');
 
+/* ======= ここに自分の情報を書く ======= */
 
-// ================================
-// ここにDiscord Botのトークンを書く
-// ================================
 const TOKEN = process.env.TOKEN;
-
-
-// =======================================
-// ここにDiscord Developer Portalの
-// Application ID（Client ID）を書く
-// =======================================
 const CLIENT_ID = process.env.CLIENT_ID;
 
+/* ===================================== */
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
+    ]
 });
 
+const LEVEL_FILE = "levels.json";
+const WEEK_FILE = "weekly.json";
 
-let xpData = {};
-let cooldown = {};
+/* ファイル読み込み */
 
-
-// ========================
-// データ読み込み
-// ========================
-if (fs.existsSync("./xp.json")) {
-  xpData = JSON.parse(fs.readFileSync("./xp.json"));
+function load(file) {
+    if (!fs.existsSync(file)) return {};
+    return JSON.parse(fs.readFileSync(file));
 }
 
-
-// ========================
-// データ保存
-// ========================
-function saveData() {
-  fs.writeFileSync("./xp.json", JSON.stringify(xpData, null, 2));
+function save(file, data) {
+    fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
 
+let levels = load(LEVEL_FILE);
+let weekly = load(WEEK_FILE);
 
-// ========================
-// 週リセットチェック
-// ========================
-function weeklyReset() {
+/* メッセージカウント */
 
-  if (!xpData.lastReset) {
-    xpData.lastReset = Date.now();
-  }
+client.on("messageCreate", (msg) => {
 
-  let week = 7 * 24 * 60 * 60 * 1000;
+    if (msg.author.bot) return;
 
-  if (Date.now() - xpData.lastReset > week) {
+    const id = msg.author.id;
 
-    for (let id in xpData) {
-
-      if (xpData[id].weeklyXP !== undefined) {
-        xpData[id].weeklyXP = 0;
-      }
-
+    if (!levels[id]) {
+        levels[id] = { messages: 0, level: 1 };
     }
 
-    xpData.lastReset = Date.now();
+    if (!weekly[id]) {
+        weekly[id] = { messages: 0, time: Date.now() };
+    }
 
-    saveData();
+    levels[id].messages += 1;
+    weekly[id].messages += 1;
 
-    console.log("週間ランキングリセット");
-  }
+    if (levels[id].messages >= 50) {
+        levels[id].messages = 0;
+        levels[id].level += 1;
 
-}
+        msg.channel.send(
+            `${msg.author} レベル${levels[id].level}になりました！`
+        );
+    }
 
+    save(LEVEL_FILE, levels);
+    save(WEEK_FILE, weekly);
+});
 
-// ========================
-// Bot起動
-// ========================
-client.on("ready", async () => {
+/* Slashコマンド */
 
-  console.log("Bot起動");
+client.on("interactionCreate", async (interaction) => {
 
-  weeklyReset();
+    if (!interaction.isChatInputCommand()) return;
 
-  const commands = [
+    const id = interaction.user.id;
+
+    if (interaction.commandName === "level") {
+
+        if (!levels[id]) {
+            levels[id] = { messages: 0, level: 1 };
+        }
+
+        const need = 50 - levels[id].messages;
+
+        await interaction.reply(
+            `レベル: ${levels[id].level}\nあと${need}メッセージでレベルアップ`
+        );
+    }
+
+    if (interaction.commandName === "ranking") {
+
+        const now = Date.now();
+        const week = 1000 * 60 * 60 * 24 * 7;
+
+        const filtered = Object.entries(weekly)
+            .filter(([id, data]) => now - data.time < week)
+            .sort((a, b) => b[1].messages - a[1].messages)
+            .slice(0, 5);
+
+        let text = "📊今週のランキング\n\n";
+
+        for (let i = 0; i < filtered.length; i++) {
+
+            const user = await client.users.fetch(filtered[i][0]);
+
+            text += `${i + 1}位 ${user.username} : ${filtered[i][1].messages}メッセージ\n`;
+        }
+
+        interaction.reply(text);
+    }
+
+});
+
+/* コマンド登録 */
+
+const commands = [
 
     new SlashCommandBuilder()
-      .setName("level")
-      .setDescription("自分のレベルを表示"),
+        .setName("level")
+        .setDescription("自分のレベルを見る"),
 
     new SlashCommandBuilder()
-      .setName("ranking")
-      .setDescription("週間ランキングを見る")
+        .setName("ranking")
+        .setDescription("今週のランキングを見る")
 
-  ].map(cmd => cmd.toJSON());
+].map(c => c.toJSON());
 
-  const rest = new REST({ version: "10" }).setToken(TOKEN);
+const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-  await rest.put(
-    Routes.applicationCommands(CLIENT_ID),
-    { body: commands }
-  );
+(async () => {
 
-  console.log("スラッシュコマンド登録完了");
-
-});
-
-
-// ========================
-// メッセージ処理
-// ========================
-client.on("messageCreate", message => {
-
-  if (message.author.bot) return;
-
-  let id = message.author.id;
-
-  if (!xpData[id]) {
-
-    xpData[id] = {
-      xp: 0,
-      level: 1,
-      weeklyXP: 0
-    };
-
-  }
-
-
-  // ========================
-  // XP追加
-  // ========================
-  xpData[id].xp += 1;
-  xpData[id].weeklyXP += 1;
-
-
-  // ========================
-  // レベルアップ
-  // ========================
-  if (xpData[id].xp >= xpData[id].level * 50) {
-
-    xpData[id].level++;
-
-    message.channel.send(
-      `${message.author.username} がレベル ${xpData[id].level} になった！`
+    await rest.put(
+        Routes.applicationCommands(CLIENT_ID),
+        { body: commands }
     );
 
-  }
+    console.log("コマンド登録完了");
 
-  saveData();
+})();
 
+client.once("clientReady", () => {
+    console.log("Bot起動");
 });
+/* 起動 */
 
-
-// ========================
-// コマンド処理
-// ========================
-client.on("interactionCreate", interaction => {
-
-  if (!interaction.isChatInputCommand()) return;
-
-
-  // ========================
-  // /level
-  // ========================
-  if (interaction.commandName === "level") {
-
-    let id = interaction.user.id;
-
-    if (!xpData[id]) {
-      xpData[id] = { xp: 0, level: 1, weeklyXP: 0 };
-    }
-
-    let xp = xpData[id].xp;
-    let level = xpData[id].level;
-
-    let nextLevelXP = level * 50;
-    let remaining = nextLevelXP - xp;
-
-    interaction.reply(
-      `現在レベル: ${level}\nあと ${remaining} メッセージでレベル ${level + 1}！`
-    );
-
-  }
-
-
-  // ========================
-  // /ranking
-  // ========================
-  if (interaction.commandName === "ranking") {
-
-    let users = Object.entries(xpData)
-      .filter(u => u[1].weeklyXP !== undefined);
-
-    users.sort((a, b) => b[1].weeklyXP - a[1].weeklyXP);
-
-    let top = users.slice(0, 5);
-
-    let text = "📊 今週のランキング\n\n";
-
-    for (let i = 0; i < top.length; i++) {
-
-      let userId = top[i][0];
-      let data = top[i][1];
-
-      text += `${i + 1}位 <@${userId}> - ${data.weeklyXP}メッセージ\n`;
-
-    }
-
-    interaction.reply(text);
-
-  }
-
-});
-
-
-// ========================
-// Botログイン
-// ========================
 client.login(process.env.TOKEN);
