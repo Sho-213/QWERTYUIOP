@@ -86,7 +86,7 @@ client.on("interactionCreate", async (interaction) => {
       .sort((a, b) => b[1].weekly - a[1].weekly)
       .slice(0, 5);
 
-    let text = "📊今週のランキング\n\n";
+    let text = "📊今までのランキング\n\n";
 
     for (let i = 0; i < users.length; i++) {
 
