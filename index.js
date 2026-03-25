@@ -1,118 +1,176 @@
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
 const fs = require('fs');
 
+/* ======= 自分の情報 ======= */
+
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 
+/* ========================== */
+
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
+    ]
 });
 
-const DATA_FILE = "data.json";
+const FILE = "data.json";
+
+/* ===== データ ===== */
 
 function load() {
-  if (!fs.existsSync(DATA_FILE)) return {};
-  return JSON.parse(fs.readFileSync(DATA_FILE));
+    if (!fs.existsSync(FILE)) return {};
+    return JSON.parse(fs.readFileSync(FILE));
 }
 
 function save(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+    fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
 }
 
 let data = load();
 
-/* メッセージカウント */
+/* ===== メッセージ処理 ===== */
 
 client.on("messageCreate", (msg) => {
 
-  if (msg.author.bot) return;
-  if (!msg.guild) return;
+    if (msg.author.bot) return;
+    if (!msg.guild) return;
 
-  const guildId = msg.guild.id;
-  const userId = msg.author.id;
+    const guildId = msg.guild.id;
+    const userId = msg.author.id;
 
-  if (!data[guildId]) data[guildId] = {};
-  if (!data[guildId][userId]) {
-    data[guildId][userId] = { messages: 0, level: 1, weekly: 0, time: Date.now() };
-  }
+    if (!data[guildId]) data[guildId] = {};
 
-  data[guildId][userId].messages += 1;
-  data[guildId][userId].weekly += 1;
+    // リセット時間
+    if (!data[guildId].resetTime) {
+        data[guildId].resetTime = Date.now();
+    }
 
-  if (data[guildId][userId].messages >= 50) {
+    // 🔥 1週間リセット
+    const week = 1000 * 60 * 60 * 24 * 7;
+    if (Date.now() - data[guildId].resetTime > week) {
 
-    data[guildId][userId].messages = 0;
-    data[guildId][userId].level += 1;
+        for (const uid in data[guildId]) {
+            if (uid === "resetTime") continue;
+            data[guildId][uid].weekly = 0;
+        }
 
-    msg.channel.send(`${msg.author} レベル${data[guildId][userId].level}になりました！`);
+        data[guildId].resetTime = Date.now();
+        console.log("週間ランキングリセット");
+    }
 
-  }
+    if (!data[guildId][userId]) {
+        data[guildId][userId] = {
+            messages: 0,
+            total: 0,
+            level: 1,
+            weekly: 0
+        };
+    }
 
-  save(data);
+    const user = data[guildId][userId];
 
+    user.messages += 1; // レベル用
+    user.total += 1;    // 累計
+    user.weekly += 1;   // 週間
+
+    // レベルアップ
+    if (user.messages >= 50) {
+        user.messages = 0;
+        user.level += 1;
+
+        msg.channel.send(`${msg.author} レベル${user.level}になりました！`);
+    }
+
+    save(data);
 });
 
-/* コマンド */
+/* ===== コマンド ===== */
 
 client.on("interactionCreate", async (interaction) => {
 
-  if (!interaction.isChatInputCommand()) return;
+    if (!interaction.isChatInputCommand()) return;
 
-  const guildId = interaction.guild.id;
-  const userId = interaction.user.id;
+    const guildId = interaction.guild.id;
+    const userId = interaction.user.id;
 
-  if (!data[guildId]) data[guildId] = {};
-  if (!data[guildId][userId]) {
-    data[guildId][userId] = { messages: 0, level: 1, weekly: 0, time: Date.now() };
-  }
-
-  if (interaction.commandName === "level") {
-
-    const need = 50 - data[guildId][userId].messages;
-
-    await interaction.reply(
-      `レベル: ${data[guildId][userId].level}\nあと${need}メッセージでレベルアップ`
-    );
-
-  }
-
-  if (interaction.commandName === "ranking") {
-
-    const users = Object.entries(data[guildId])
-      .sort((a, b) => b[1].weekly - a[1].weekly)
-      .slice(0, 5);
-
-    let text = "📊今までのランキング\n\n";
-
-    for (let i = 0; i < users.length; i++) {
-
-      const user = await client.users.fetch(users[i][0]);
-
-      text += `${i + 1}位 ${user.username} : ${users[i][1].weekly}メッセージ\n`;
-
+    if (!data[guildId]) data[guildId] = {};
+    if (!data[guildId][userId]) {
+        data[guildId][userId] = {
+            messages: 0,
+            total: 0,
+            level: 1,
+            weekly: 0
+        };
     }
 
-    interaction.reply(text);
+    const user = data[guildId][userId];
 
-  }
+    // レベル
+    if (interaction.commandName === "level") {
+
+        const need = 50 - user.messages;
+
+        await interaction.reply(
+            `レベル: ${user.level}\nあと${need}メッセージでレベルアップ`
+        );
+    }
+
+    // 今週ランキング
+    if (interaction.commandName === "ranking") {
+
+        const users = Object.entries(data[guildId])
+            .filter(([id]) => id !== "resetTime")
+            .sort((a, b) => b[1].weekly - a[1].weekly)
+            .slice(0, 5);
+
+        let text = "📊今週のランキング\n\n";
+
+        for (let i = 0; i < users.length; i++) {
+            const u = await client.users.fetch(users[i][0]);
+            text += `${i + 1}位 ${u.username} : ${users[i][1].weekly}メッセージ\n`;
+        }
+
+        interaction.reply(text);
+    }
+
+    // 累計ランキング
+    if (interaction.commandName === "allranking") {
+
+        const users = Object.entries(data[guildId])
+            .filter(([id]) => id !== "resetTime")
+            .sort((a, b) => b[1].total - a[1].total)
+            .slice(0, 5);
+
+        let text = "🏆累計ランキング\n\n";
+
+        for (let i = 0; i < users.length; i++) {
+            const u = await client.users.fetch(users[i][0]);
+            text += `${i + 1}位 ${u.username} : ${users[i][1].total}メッセージ\n`;
+        }
+
+        interaction.reply(text);
+    }
 
 });
 
-/* Slashコマンド登録 */
+/* ===== コマンド登録 ===== */
 
 const commands = [
 
-  new SlashCommandBuilder()
-    .setName("level")
-    .setDescription("自分のレベルを見る"),
+    new SlashCommandBuilder()
+        .setName("level")
+        .setDescription("自分のレベルを見る"),
 
-  new SlashCommandBuilder()
-    .setName("ranking")
-    .setDescription("今週のランキングを見る")
+    new SlashCommandBuilder()
+        .setName("ranking")
+        .setDescription("今週のランキングを見る"),
+
+    new SlashCommandBuilder()
+        .setName("allranking")
+        .setDescription("累計ランキングを見る")
 
 ].map(c => c.toJSON());
 
@@ -120,17 +178,17 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 (async () => {
 
-  await rest.put(
-    Routes.applicationCommands(CLIENT_ID),
-    { body: commands }
-  );
+    await rest.put(
+        Routes.applicationCommands(CLIENT_ID),
+        { body: commands }
+    );
 
-  console.log("コマンド登録完了");
+    console.log("コマンド登録完了");
 
 })();
 
 client.once("clientReady", () => {
-  console.log("Bot起動");
+    console.log("Bot起動");
 });
 
 client.login(TOKEN);
