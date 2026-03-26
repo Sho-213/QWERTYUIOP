@@ -156,6 +156,41 @@ client.on("interactionCreate", async (interaction) => {
 
 });
 
+// 累計ランキング全員
+if (interaction.commandName === "allranking_all") {
+
+    const users = Object.entries(data[guildId])
+        .filter(([id]) => id !== "resetTime")
+        .sort((a, b) => b[1].total - a[1].total);
+
+    let text = "🏆累計ランキング（全員）\n\n";
+    let messages = [];
+
+    for (let i = 0; i < users.length; i++) {
+
+        const u = await client.users.fetch(users[i][0]);
+
+        const line = `${i + 1}位 ${u.username} : ${users[i][1].total}メッセージ\n`;
+
+        // 2000文字対策
+        if ((text + line).length > 1900) {
+            messages.push(text);
+            text = "";
+        }
+
+        text += line;
+    }
+
+    if (text.length > 0) messages.push(text);
+
+    // 最初だけreply、それ以降はfollowUp
+    await interaction.reply(messages[0]);
+
+    for (let i = 1; i < messages.length; i++) {
+        await interaction.followUp(messages[i]);
+    }
+}
+
 /* ===== コマンド登録 ===== */
 
 const commands = [
@@ -171,6 +206,10 @@ const commands = [
     new SlashCommandBuilder()
         .setName("allranking")
         .setDescription("累計ランキングを見る")
+        
+    new SlashCommandBuilder()
+        .setName("allranking_all")
+        .setDescription("累計ランキングを全員表示")
 
 ].map(c => c.toJSON());
 
