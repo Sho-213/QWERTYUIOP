@@ -224,7 +224,7 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName("allranking_all")
-        .setDescription("累計ランキングを全員表示")
+        .setDescription("累計ランキングを全員表示"),
 
 ].map(c => c.toJSON());
 
