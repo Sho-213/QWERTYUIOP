@@ -205,7 +205,7 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.followUp(messages[i]);
     }
 
-  });
+  }
 
 /* ===== コマンド登録 ===== */
 
