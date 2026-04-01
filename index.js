@@ -1,12 +1,8 @@
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require('discord.js');
 const fs = require('fs');
 
-/* ======= 自分の情報 ======= */
-
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
-
-/* ========================== */
 
 const client = new Client({
     intents: [
@@ -43,12 +39,10 @@ client.on("messageCreate", (msg) => {
 
     if (!data[guildId]) data[guildId] = {};
 
-    // リセット時間
     if (!data[guildId].resetTime) {
         data[guildId].resetTime = Date.now();
     }
 
-    // 🔥 1週間リセット
     const week = 1000 * 60 * 60 * 24 * 7;
     if (Date.now() - data[guildId].resetTime > week) {
 
@@ -72,15 +66,13 @@ client.on("messageCreate", (msg) => {
 
     const user = data[guildId][userId];
 
-    user.messages += 1; // レベル用
-    user.total += 1;    // 累計
-    user.weekly += 1;   // 週間
+    user.messages += 1;
+    user.total += 1;
+    user.weekly += 1;
 
-    // レベルアップ
     if (user.messages >= 50) {
         user.messages = 0;
         user.level += 1;
-
         msg.channel.send(`${msg.author} レベル${user.level}になりました！`);
     }
 
@@ -110,9 +102,7 @@ client.on("interactionCreate", async (interaction) => {
 
     // レベル
     if (interaction.commandName === "level") {
-
         const need = 50 - user.messages;
-
         await interaction.reply(
             `レベル: ${user.level}\nあと${need}メッセージでレベルアップ`
         );
@@ -136,7 +126,7 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply(text);
     }
 
-    // 累計ランキング
+    // 累計ランキング（上位5）
     if (interaction.commandName === "allranking") {
 
         const users = Object.entries(data[guildId])
@@ -154,58 +144,51 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply(text);
     }
 
-    // 🔥 累計ランキング（全員）
-  if (interaction.commandName === "allranking_all") {
+    // 🔥 累計ランキング（全員・軽量版）
+    if (interaction.commandName === "allranking_all") {
 
-    await interaction.deferReply();
+        await interaction.deferReply();
 
-    const users = Object.entries(data[guildId])
-        .filter(([id]) => id !== "resetTime")
-        .sort((a, b) => b[1].total - a[1].total);
+        const users = Object.entries(data[guildId])
+            .filter(([id]) => id !== "resetTime")
+            .sort((a, b) => b[1].total - a[1].total);
 
-    let text = "🏆累計ランキング（全員）\n\n";
-    let messages = [];
+        let text = "🏆累計ランキング（全員）\n\n";
+        let messages = [];
 
-    for (let i = 0; i < users.length; i++) {
+        for (let i = 0; i < users.length; i++) {
 
-        const userId = users[i][0];
+            const uid = users[i][0];
 
-        // 🔥 まずキャッシュ
-        let member = interaction.guild.members.cache.get(userId);
+            let member = interaction.guild.members.cache.get(uid);
+            let name;
 
-        let name;
-
-        if (member) {
-            name = member.user.username;
-        } else {
-            try {
-                // 必要なときだけ fetch（軽量化）
-                const u = await client.users.fetch(userId);
-                name = u.username;
-            } catch {
-                name = `<@${userId}>`;
+            if (member) {
+                name = member.user.username;
+            } else {
+                name = `<@${uid}>`; // ←軽量化
             }
+
+            const line = `${i + 1}位 ${name} : ${users[i][1].total}メッセージ\n`;
+
+            if ((text + line).length > 1900) {
+                messages.push(text);
+                text = "";
+            }
+
+            text += line;
         }
 
-        const line = `${i + 1}位 ${name} : ${users[i][1].total}メッセージ\n`;
+        if (text.length > 0) messages.push(text);
 
-        if ((text + line).length > 1900) {
-            messages.push(text);
-            text = "";
+        await interaction.editReply(messages[0]);
+
+        for (let i = 1; i < messages.length; i++) {
+            await interaction.followUp(messages[i]);
         }
-
-        text += line;
     }
 
-    if (text.length > 0) messages.push(text);
-
-    await interaction.editReply(messages[0]);
-
-    for (let i = 1; i < messages.length; i++) {
-        await interaction.followUp(messages[i]);
-    }
-
-  }
+}); // ←🔥これ超重要（閉じ）
 
 /* ===== コマンド登録 ===== */
 
@@ -232,14 +215,11 @@ const commands = [
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 (async () => {
-
     await rest.put(
         Routes.applicationCommands(CLIENT_ID),
         { body: commands }
     );
-
     console.log("コマンド登録完了");
-
 })();
 
 client.once("clientReady", () => {
