@@ -155,38 +155,56 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     // 🔥 累計ランキング（全員）
-    if (interaction.commandName === "allranking_all") {
+  if (interaction.commandName === "allranking_all") {
 
-        const users = Object.entries(data[guildId])
-            .filter(([id]) => id !== "resetTime")
-            .sort((a, b) => b[1].total - a[1].total);
+    await interaction.deferReply();
 
-        let text = "🏆累計ランキング（全員）\n\n";
-        let messages = [];
+    const users = Object.entries(data[guildId])
+        .filter(([id]) => id !== "resetTime")
+        .sort((a, b) => b[1].total - a[1].total);
 
-        for (let i = 0; i < users.length; i++) {
+    let text = "🏆累計ランキング（全員）\n\n";
+    let messages = [];
 
-            const u = await client.users.fetch(users[i][0]);
-            const line = `${i + 1}位 ${u.username} : ${users[i][1].total}メッセージ\n`;
+    for (let i = 0; i < users.length; i++) {
 
-            if ((text + line).length > 1900) {
-                messages.push(text);
-                text = "";
+        const userId = users[i][0];
+
+        // 🔥 まずキャッシュ
+        let member = interaction.guild.members.cache.get(userId);
+
+        let name;
+
+        if (member) {
+            name = member.user.username;
+        } else {
+            try {
+                // 必要なときだけ fetch（軽量化）
+                const u = await client.users.fetch(userId);
+                name = u.username;
+            } catch {
+                name = `<@${userId}>`;
             }
-
-            text += line;
         }
 
-        if (text.length > 0) messages.push(text);
+        const line = `${i + 1}位 ${name} : ${users[i][1].total}メッセージ\n`;
 
-        await interaction.reply(messages[0]);
-
-        for (let i = 1; i < messages.length; i++) {
-            await interaction.followUp(messages[i]);
+        if ((text + line).length > 1900) {
+            messages.push(text);
+            text = "";
         }
+
+        text += line;
     }
 
-});
+    if (text.length > 0) messages.push(text);
+
+    await interaction.editReply(messages[0]);
+
+    for (let i = 1; i < messages.length; i++) {
+        await interaction.followUp(messages[i]);
+    }
+}
 
 /* ===== コマンド登録 ===== */
 
